@@ -1,0 +1,8 @@
+{
+  "name": "Mubashir Assistant",
+  "description": "A feature-rich chatbot capable of processing text, images, videos, audio, and documents, featuring a real-time voice assistant mode.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
