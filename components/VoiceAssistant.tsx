@@ -63,7 +63,6 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose }) => {
       const centerY = canvas.height / 2;
       const radius = 60 + (isAiThinking ? 5 : 0);
 
-      // Draw pulse
       const avg = dataArray.reduce((a, b) => a + b) / bufferLength;
       const pulseSize = (avg / 255) * 50;
 
@@ -73,7 +72,6 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose }) => {
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Bars
       const bars = 80;
       for (let i = 0; i < bars; i++) {
         const rads = (Math.PI * 2) / bars;
@@ -118,7 +116,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose }) => {
           onopen: () => {
             setIsActive(true);
             const source = inputAudioContext.createMediaStreamSource(stream);
-            source.connect(analyser); // Connect for visualizer
+            source.connect(analyser); 
             const scriptProcessor = inputAudioContext.createScriptProcessor(4096, 1, 1);
             
             scriptProcessor.onaudioprocess = (e) => {
@@ -126,6 +124,8 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose }) => {
               const pcmBlob = createPcmBlob(inputData);
               sessionPromise.then((session) => {
                 session.sendRealtimeInput({ media: pcmBlob });
+              }).catch(e => {
+                console.error("Live session failed:", e);
               });
             };
 
@@ -165,8 +165,14 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose }) => {
               setIsAiThinking(false);
             }
           },
-          onerror: (e) => {
-            setError('An error occurred during the session.');
+          onerror: (e: any) => {
+            const errStr = JSON.stringify(e);
+            if (errStr.includes("PERMISSION_DENIED")) {
+               setError('Authorization Error: Please select a valid paid-tier API Key.');
+               (window as any).aistudio.openSelectKey();
+            } else {
+               setError('An error occurred during the session.');
+            }
             cleanup();
           },
           onclose: () => cleanup(),
@@ -176,14 +182,19 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose }) => {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
           },
-          systemInstruction: 'You are a helpful, conversational AI assistant. Automatically detect the user\'s language and respond in the same language. Use natural language, be concise, and friendly.',
+          systemInstruction: 'You are a helpful, conversational AI assistant. Respond naturally and concisely.',
           outputAudioTranscription: {},
         },
       });
 
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
-      setError(err.message || 'Access denied.');
+      if (err.message?.includes("PERMISSION_DENIED") || err.status === 403) {
+        setError("Permission Denied: Use a paid-tier API Key.");
+        await (window as any).aistudio.openSelectKey();
+      } else {
+        setError(err.message || 'Access denied.');
+      }
     }
   };
 
@@ -225,20 +236,23 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose }) => {
 
         <div className="text-center space-y-4">
           <h2 className="text-3xl font-bold tracking-tight">
-            {isAiThinking ? 'AI is speaking...' : isActive ? 'Listening to you...' : 'Starting Live Talk...'}
+            {error ? 'Authorization Required' : isAiThinking ? 'AI is speaking...' : isActive ? 'Listening to you...' : 'Starting Live Talk...'}
           </h2>
           
           <div className="h-24 px-4 overflow-y-auto scrollbar-hide">
             <p className="text-blue-200 text-lg italic opacity-80 leading-relaxed font-light">
-              {transcription || "Listening in multiple languages..."}
+              {error || transcription || "Listening for your voice..."}
             </p>
           </div>
         </div>
 
         {error && (
-            <div className="mt-8 p-4 rounded-2xl bg-red-500/20 border border-red-500/30 text-red-200">
-                {error}
-            </div>
+            <button 
+                onClick={() => { setError(null); startSession(); }}
+                className="mt-8 px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 font-bold uppercase tracking-widest text-xs transition-all shadow-xl shadow-indigo-500/20"
+            >
+                Retry Neural Link
+            </button>
         )}
 
         <div className="mt-12 w-full flex justify-center gap-6">

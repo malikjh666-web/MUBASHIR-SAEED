@@ -54,6 +54,7 @@ const App: React.FC = () => {
   const [readingId, setReadingId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [loadingText, setLoadingText] = useState("Thinking...");
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -109,10 +110,31 @@ const App: React.FC = () => {
     localStorage.removeItem('assistant_user');
   };
 
+  const updateAdminStats = () => {
+    if (!user) return;
+    const savedUsers = localStorage.getItem('assistant_db_users');
+    if (savedUsers) {
+      let users = JSON.parse(savedUsers);
+      const idx = users.findIndex((u: any) => u.username === user.username);
+      if (idx >= 0) {
+        users[idx].messageCount += 1;
+        localStorage.setItem('assistant_db_users', JSON.stringify(users));
+      }
+    }
+  };
+
   const handleError = async (err: any) => {
-    if (err.message?.includes("PERMISSION_DENIED") || err.status === 403 || err.code === 403) {
-      setLoadingText("Refreshing API Credentials...");
+    console.error("Neural Error:", err);
+    const errStr = JSON.stringify(err);
+    const is403 = errStr.includes("PERMISSION_DENIED") || 
+                  err.status === 403 || 
+                  err.code === 403 ||
+                  (err.error && (err.error.code === 403 || err.error.status === "PERMISSION_DENIED"));
+
+    if (is403) {
+      setErrorBanner("Permission Denied: Paid-tier API Key Required. Please select a valid key.");
       await (window as any).aistudio.openSelectKey();
+      setTimeout(() => setErrorBanner(null), 8000);
       return true;
     }
     return false;
@@ -383,6 +405,7 @@ const App: React.FC = () => {
 
       currentHistory = [...currentHistory, modelMessage];
       setMessages(currentHistory);
+      updateAdminStats(); // Track successful message
 
       if (toolResponses.length > 0) {
         setLoadingText("Confirming turn...");
@@ -409,7 +432,7 @@ const App: React.FC = () => {
       setMessages(prev => [...prev, {
         id: uuidv4(),
         role: MessageRole.MODEL,
-        parts: [{ text: handled ? "API connection refreshed. Please try that again." : "My neural link is flickering. Please try sending that again." }],
+        parts: [{ text: handled ? "Permission error detected. Please select a valid paid-tier API key from the dialog." : "My neural link is flickering. Please try sending that again." }],
         timestamp: Date.now(),
       }]);
     } finally {
@@ -425,6 +448,20 @@ const App: React.FC = () => {
   return (
     <div className="flex items-center justify-center min-h-screen p-4 md:p-8">
       <div className="w-full max-w-4xl h-[85vh] flex flex-col glass rounded-[2.5rem] shadow-2xl overflow-hidden relative border border-white/40">
+        
+        {/* Permission Error Banner */}
+        {errorBanner && (
+          <div className="absolute top-0 left-0 w-full bg-rose-600 text-white py-3 px-8 z-[100] animate-in slide-in-from-top-full duration-500 flex items-center justify-between shadow-xl">
+            <div className="flex items-center gap-3">
+              <span className="bg-white/20 p-1 rounded-lg">⚠️</span>
+              <p className="text-sm font-bold tracking-tight">{errorBanner}</p>
+            </div>
+            <button onClick={() => setErrorBanner(null)} className="text-white/60 hover:text-white transition-colors">
+              <IconClose className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+
         {/* Admin Hub Overlay */}
         {isAdminMode && <AdminPanel onClose={() => setIsAdminMode(false)} />}
 
