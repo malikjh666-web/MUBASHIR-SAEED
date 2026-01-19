@@ -2,8 +2,8 @@
 import { GoogleGenAI, GenerateContentResponse, Modality, Type, FunctionDeclaration } from "@google/genai";
 import { ChatMessage, MessageRole } from "../types";
 
-// Always use process.env.API_KEY directly for initialization.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper to get a fresh instance to avoid stale keys
+const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const createFileTool: FunctionDeclaration = {
   name: "create_file",
@@ -84,6 +84,7 @@ export async function sendMultimodalMessage(
   const finalSystemInstruction = systemInstruction || 
     "You are a helpful assistant. You can create files, generate images, and generate videos. If a user asks for a video or animation, use 'generate_video'. Inform users that videos may take a few minutes to render.";
 
+  const ai = getAI();
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: contents,
@@ -97,6 +98,7 @@ export async function sendMultimodalMessage(
 }
 
 export async function generateImage(prompt: string, aspectRatio: string = "1:1"): Promise<string> {
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: { parts: [{ text: prompt }] },
@@ -121,7 +123,7 @@ export async function generateVideo(
   resolution: string = '720p',
   onStatusUpdate?: (status: string) => void
 ): Promise<string> {
-  const videoAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const videoAi = getAI();
   
   onStatusUpdate?.("Initializing video engine...");
   let operation = await videoAi.models.generateVideos({
@@ -155,11 +157,17 @@ export async function generateVideo(
 
   onStatusUpdate?.("Fetching final render...");
   const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+  if (!response.ok) {
+    const errorBody = await response.text();
+    if (errorBody.includes("PERMISSION_DENIED")) throw new Error("PERMISSION_DENIED");
+    throw new Error(`Fetch failed: ${response.status}`);
+  }
   const blob = await response.blob();
   return URL.createObjectURL(blob);
 }
 
 export async function generateSpeech(text: string): Promise<string> {
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
     contents: [{ parts: [{ text: `Say clearly: ${text}` }] }],

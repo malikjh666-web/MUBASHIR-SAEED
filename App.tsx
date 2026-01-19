@@ -23,10 +23,19 @@ import {
   IconDownload
 } from './components/Icons';
 import VoiceAssistant from './components/VoiceAssistant';
-
-// Removed redundant window.aistudio declaration to resolve type conflicts with environment typings.
+import LoginPage from './components/LoginPage';
+import AdminPanel from './components/AdminPanel';
 
 const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return localStorage.getItem('assistant_auth') === 'true';
+  });
+  const [user, setUser] = useState<{ username: string; email: string } | null>(() => {
+    const saved = localStorage.getItem('assistant_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [isAdminMode, setIsAdminMode] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -78,6 +87,35 @@ const App: React.FC = () => {
     if (audioContextRef.current.state === 'suspended') {
       audioContextRef.current.resume();
     }
+  };
+
+  const handleLogin = async (userData: { username: string; email: string }) => {
+    const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+    if (!hasKey) {
+      await (window as any).aistudio.openSelectKey();
+    }
+    
+    setIsAuthenticated(true);
+    setUser(userData);
+    localStorage.setItem('assistant_auth', 'true');
+    localStorage.setItem('assistant_user', JSON.stringify(userData));
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUser(null);
+    setIsAdminMode(false);
+    localStorage.removeItem('assistant_auth');
+    localStorage.removeItem('assistant_user');
+  };
+
+  const handleError = async (err: any) => {
+    if (err.message?.includes("PERMISSION_DENIED") || err.status === 403 || err.code === 403) {
+      setLoadingText("Refreshing API Credentials...");
+      await (window as any).aistudio.openSelectKey();
+      return true;
+    }
+    return false;
   };
 
   const handleDownloadFile = (file: GeneratedFile) => {
@@ -138,7 +176,7 @@ const App: React.FC = () => {
       source.onended = () => setReadingId(null);
       source.start();
     } catch (error) {
-      console.error("Speech generation failed", error);
+      handleError(error);
       setReadingId(null);
     }
   };
@@ -158,12 +196,8 @@ const App: React.FC = () => {
     }, 0);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
-    if (files.length === 0) return;
-    
+  const processFiles = async (files: File[]) => {
     const newAttachments: Attachment[] = [];
-
     for (const file of files) {
       let type: Attachment['type'] = 'document';
       if (file.type.startsWith('image/')) type = 'image';
@@ -181,9 +215,29 @@ const App: React.FC = () => {
         base64
       });
     }
-
     setAttachments(prev => [...prev, ...newAttachments]);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length === 0) return;
+    await processFiles(files);
     if (e.target) e.target.value = '';
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file') {
+        const file = items[i].getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault();
+      await processFiles(files);
+    }
   };
 
   const removeAttachment = (id: string) => {
@@ -192,14 +246,6 @@ const App: React.FC = () => {
       if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
       return prev.filter(a => a.id !== id);
     });
-  };
-
-  const ensureApiKey = async () => {
-    const hasKey = await window.aistudio.hasSelectedApiKey();
-    if (!hasKey) {
-      await window.aistudio.openSelectKey();
-    }
-    return true;
   };
 
   const handleSend = async () => {
@@ -287,6 +333,7 @@ const App: React.FC = () => {
                 }
               });
             } catch (imgErr) {
+              await handleError(imgErr);
               toolResponses.push({
                 functionResponse: {
                   id: fc.id,
@@ -297,7 +344,6 @@ const App: React.FC = () => {
             }
           } else if (fc.name === 'generate_video') {
             setLoadingText("Preparing Video Engine...");
-            await ensureApiKey();
             const { prompt, aspectRatio, resolution } = fc.args as any;
             try {
               const videoUrl = await generateVideo(prompt, aspectRatio, resolution, (status) => {
@@ -315,10 +361,7 @@ const App: React.FC = () => {
                 }
               });
             } catch (vidErr: any) {
-                console.error(vidErr);
-                if (vidErr.message?.includes("entity was not found")) {
-                  await window.aistudio.openSelectKey();
-                }
+                await handleError(vidErr);
                 toolResponses.push({
                   functionResponse: {
                     id: fc.id,
@@ -362,10 +405,11 @@ const App: React.FC = () => {
       }
 
     } catch (error) {
+      const handled = await handleError(error);
       setMessages(prev => [...prev, {
         id: uuidv4(),
         role: MessageRole.MODEL,
-        parts: [{ text: "My neural link is flickering. Please try sending that again." }],
+        parts: [{ text: handled ? "API connection refreshed. Please try that again." : "My neural link is flickering. Please try sending that again." }],
         timestamp: Date.now(),
       }]);
     } finally {
@@ -374,9 +418,16 @@ const App: React.FC = () => {
     }
   };
 
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   return (
     <div className="flex items-center justify-center min-h-screen p-4 md:p-8">
       <div className="w-full max-w-4xl h-[85vh] flex flex-col glass rounded-[2.5rem] shadow-2xl overflow-hidden relative border border-white/40">
+        {/* Admin Hub Overlay */}
+        {isAdminMode && <AdminPanel onClose={() => setIsAdminMode(false)} />}
+
         {/* Header */}
         <header className="flex items-center justify-between px-8 py-6 border-b border-white/20 z-10 bg-white/30 backdrop-blur-md">
           <div className="flex items-center gap-4">
@@ -384,19 +435,27 @@ const App: React.FC = () => {
               <IconBot className="w-10 h-10 group-hover:scale-110 transition-transform duration-500" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight">Assistant</h1>
+              <h1 className="text-xl font-bold text-slate-800 tracking-tight">Assistant Hub</h1>
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                <span className="text-xs font-semibold text-emerald-600 uppercase tracking-widest">Neural Link Active</span>
+                <span className="text-xs font-semibold text-emerald-600 uppercase tracking-widest">Active: {user?.username}</span>
               </div>
             </div>
           </div>
           
           <div className="flex items-center gap-3">
+            {user?.username.toLowerCase() === 'admin' && (
+              <button 
+                onClick={() => setIsAdminMode(true)}
+                className="px-4 py-2 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
+              >
+                Admin Panel
+              </button>
+            )}
             <button 
-                onClick={() => setMessages([messages[0]])}
+                onClick={handleLogout}
                 className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                title="Reset Session"
+                title="Disconnect"
             >
                 <IconTrash className="w-6 h-6" />
             </button>
@@ -671,6 +730,7 @@ const App: React.FC = () => {
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
+              onPaste={handlePaste}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
