@@ -1,0 +1,25 @@
+name: mountain_rider_x
+description: 2D physics hill-climbing mobile game using Flutter + Flame
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flame: ^1.18.0
+  flame_forge2d: ^0.18.1
+  flutter_animate: ^4.5.0
+  shared_preferences: ^2.2.3
+  intl: ^0.19.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/audio/
+    - assets/particles/
+    - assets/vehicles/
+    - assets/ui/
