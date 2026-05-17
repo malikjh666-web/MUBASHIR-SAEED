@@ -18,6 +18,9 @@ class MountainRiderGame extends Forge2DGame with TapCallbacks {
   late final AudioManager audioManager;
   late final ObjectPool pool;
 
+  int _acceleratePointers = 0;
+  int _brakePointers = 0;
+
   @override
   Future<void> onLoad() async {
     camera.viewfinder.zoom = 16;
@@ -29,6 +32,43 @@ class MountainRiderGame extends Forge2DGame with TapCallbacks {
 
     await addAll([terrainGenerator, vehicle, gameManager]);
     camera.follow(vehicle.chassisComponent, maxSpeed: 4);
+  }
+
+  @override
+  void onTapDown(TapDownEvent event) {
+    super.onTapDown(event);
+    if (event.localPosition.x >= size.x / 2) {
+      _acceleratePointers += 1;
+    } else {
+      _brakePointers += 1;
+    }
+    _syncInputState();
+  }
+
+  @override
+  void onTapUp(TapUpEvent event) {
+    super.onTapUp(event);
+    _releasePointer(event.localPosition.x);
+  }
+
+  @override
+  void onTapCancel(TapCancelEvent event) {
+    super.onTapCancel(event);
+    _releasePointer(event.localPosition.x);
+  }
+
+  void _releasePointer(double xPosition) {
+    if (xPosition >= size.x / 2) {
+      _acceleratePointers = (_acceleratePointers - 1).clamp(0, 100);
+    } else {
+      _brakePointers = (_brakePointers - 1).clamp(0, 100);
+    }
+    _syncInputState();
+  }
+
+  void _syncInputState() {
+    vehicle.isAccelerating = _acceleratePointers > 0;
+    vehicle.isBraking = _brakePointers > 0;
   }
 
   @override
